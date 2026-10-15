@@ -33,7 +33,11 @@ public class RoomService {
     }
 
     public Room createRoom(String roomId, String roomName, String creatorUsername) {
-        Room room = new Room(roomId, roomName, creatorUsername);
+        return createRoom(roomId, roomName, creatorUsername, "infinite");
+    }
+
+    public Room createRoom(String roomId, String roomName, String creatorUsername, String canvasType) {
+        Room room = new Room(roomId, roomName, creatorUsername, canvasType);
         rooms.put(roomId, room);
         return room;
     }

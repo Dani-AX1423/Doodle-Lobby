@@ -5,7 +5,9 @@ import { useSocket } from '../hooks/useSocket';
 import { useTheme } from '../context/ThemeContext';
 
 const WhiteboardCanvas = ({
+  containerRef,
   roomId,
+  canvasType = 'infinite',
   username,
   tool = 'pencil',
   lineWidth = 3,
@@ -21,8 +23,14 @@ const WhiteboardCanvas = ({
   externalRedoTrigger,
 }) => {
   const canvasRef = useRef(null);
-  const contextRef = useRef(null);
+  const outerWrapperRef = useRef(null);
   const { theme, showGrid } = useTheme();
+
+  // Mode identification
+  const isFixedSheet = canvasType === 'fixed-16-9' || canvasType === 'fixed-a4';
+  const sheetWidth = canvasType === 'fixed-16-9' ? 1920 : canvasType === 'fixed-a4' ? 1240 : 0;
+  const sheetHeight = canvasType === 'fixed-16-9' ? 1080 : canvasType === 'fixed-a4' ? 1754 : 0;
+  const sheetTitle = canvasType === 'fixed-16-9' ? '16:9 Widescreen' : canvasType === 'fixed-a4' ? 'A4 Portrait' : 'Infinite Space';
 
   // Drawing state refs
   const isDrawingRef = useRef(false);
@@ -49,13 +57,28 @@ const WhiteboardCanvas = ({
 
   const { sendDrawEvent, sendCursorMove, subscribeDrawEvent, subscribeClearCanvas } = useSocket();
 
-  // Helper to convert screen mouse coords to world/canvas coords
-  const screenToCanvas = useCallback((screenX, screenY) => {
-    return {
-      x: (screenX - panOffset.x) / zoom,
-      y: (screenY - panOffset.y) / zoom,
-    };
-  }, [panOffset, zoom]);
+  // Helper to convert screen coordinates to canvas coordinates
+  const screenToCanvas = useCallback((clientX, clientY) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+
+    if (isFixedSheet) {
+      // In fixed sheet mode, map screen position directly to fixed canvas dimensions
+      const rawX = (clientX - rect.left) * (canvas.width / rect.width);
+      const rawY = (clientY - rect.top) * (canvas.height / rect.height);
+      return {
+        x: Math.max(0, Math.min(rawX, canvas.width)),
+        y: Math.max(0, Math.min(rawY, canvas.height)),
+      };
+    } else {
+      // In infinite mode, pan and zoom are applied via 2D context transform
+      return {
+        x: (clientX - rect.left - panOffset.x) / zoom,
+        y: (clientY - rect.top - panOffset.y) / zoom,
+      };
+    }
+  }, [isFixedSheet, panOffset, zoom]);
 
   // Helper to render an individual stroke on a transformed 2D context
   const renderSingleStroke = useCallback((ctx, stroke) => {
@@ -115,23 +138,29 @@ const WhiteboardCanvas = ({
     ctx.restore();
   }, []);
 
-  // Master Redraw function with HiDPI and Pan & Zoom transform
+  // Master Redraw function
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-
-    // Reset transform and clear viewport
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Apply viewport camera transform: scale & pan
-    ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * panOffset.x, dpr * panOffset.y);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    if (isFixedSheet) {
+      // Fixed sheet: canvas dimensions are intrinsic sheetWidth x sheetHeight
+      // Scaling and panning are handled smoothly by CSS transform on the card wrapper
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+    } else {
+      // Infinite mode: canvas is resized to match viewport, zoom and pan applied to 2D context
+      const dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * panOffset.x, dpr * panOffset.y);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+    }
 
     // 1. Draw committed history strokes
     const strokes = historyRef.current;
@@ -158,25 +187,30 @@ const WhiteboardCanvas = ({
       };
       renderSingleStroke(ctx, localPreviewStroke);
     }
-  }, [zoom, panOffset, renderSingleStroke, tool, color, lineWidth]);
+  }, [isFixedSheet, zoom, panOffset, renderSingleStroke, tool, color, lineWidth]);
 
-  // Canvas size management with devicePixelRatio
+  // Canvas size management
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const updateSize = () => {
-      const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
+    if (isFixedSheet) {
+      canvas.width = sheetWidth;
+      canvas.height = sheetHeight;
       redraw();
-    };
-
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, [redraw]);
+    } else {
+      const updateSize = () => {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        redraw();
+      };
+      updateSize();
+      window.addEventListener('resize', updateSize);
+      return () => window.removeEventListener('resize', updateSize);
+    }
+  }, [isFixedSheet, sheetWidth, sheetHeight, redraw]);
 
   // Trigger redraw on zoom or pan changes
   useEffect(() => {
@@ -203,7 +237,6 @@ const WhiteboardCanvas = ({
           if (targetId) {
             return prev.filter((s) => s.strokeId !== targetId);
           }
-          // Remove last stroke from that user if no strokeId
           for (let i = prev.length - 1; i >= 0; i--) {
             if (prev[i].username === data.username) {
               const updated = [...prev];
@@ -223,11 +256,12 @@ const WhiteboardCanvas = ({
         return;
       }
 
-      // Completed stroke
+      // Finalized stroke completed by remote peer
       if (data.strokeId) {
         remoteStreamingRef.current.delete(data.strokeId);
       }
       setHistory((prev) => [...prev, data]);
+      redraw();
     });
 
     const unsubClear = subscribeClearCanvas(() => {
@@ -244,96 +278,79 @@ const WhiteboardCanvas = ({
     };
   }, [subscribeDrawEvent, subscribeClearCanvas, redraw]);
 
-  // Redraw when history changes
-  useEffect(() => {
-    redraw();
-  }, [history, redraw]);
-
-  // Perform Undo
+  // Local Undo Action
   const performUndo = useCallback(() => {
-    if (historyRef.current.length === 0) return;
-
-    // Find the latest stroke by current user, or top stroke
-    let targetIndex = -1;
-    for (let i = historyRef.current.length - 1; i >= 0; i--) {
-      if (!username || historyRef.current[i].username === username) {
-        targetIndex = i;
-        break;
-      }
-    }
-    if (targetIndex === -1) targetIndex = historyRef.current.length - 1;
-
-    const strokeToUndo = historyRef.current[targetIndex];
-    redoStackRef.current.push(strokeToUndo);
-
     setHistory((prev) => {
-      const next = [...prev];
-      next.splice(targetIndex, 1);
-      return next;
-    });
+      if (prev.length === 0) return prev;
+      let lastIndex = -1;
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (!prev[i].username || prev[i].username === username) {
+          lastIndex = i;
+          break;
+        }
+      }
+      if (lastIndex === -1) lastIndex = prev.length - 1;
 
-    // Notify peers
-    if (sendDrawEvent) {
-      sendDrawEvent({
-        type: 'undo',
-        strokeId: strokeToUndo.strokeId,
-        username,
-      });
-    }
+      const strokeToUndo = prev[lastIndex];
+      redoStackRef.current.push(strokeToUndo);
+
+      const nextHistory = [...prev];
+      nextHistory.splice(lastIndex, 1);
+
+      if (sendDrawEvent) {
+        sendDrawEvent({
+          type: 'undo',
+          strokeId: strokeToUndo.strokeId,
+          username,
+        });
+      }
+
+      return nextHistory;
+    });
   }, [username, sendDrawEvent]);
 
-  // Perform Redo
+  // Local Redo Action
   const performRedo = useCallback(() => {
     if (redoStackRef.current.length === 0) return;
-    const strokeToRestore = redoStackRef.current.pop();
+    const strokeToRedo = redoStackRef.current.pop();
 
-    setHistory((prev) => [...prev, strokeToRestore]);
-
-    if (sendDrawEvent) {
-      sendDrawEvent({
-        ...strokeToRestore,
-        isStreaming: false,
-      });
-    }
+    setHistory((prev) => {
+      const nextHistory = [...prev, strokeToRedo];
+      if (sendDrawEvent) {
+        sendDrawEvent(strokeToRedo);
+      }
+      return nextHistory;
+    });
   }, [sendDrawEvent]);
 
-  // Expose undo/redo triggers to parent toolbar
+  // Expose Undo/Redo handles
   useEffect(() => {
     if (onUndoReady) onUndoReady(performUndo);
     if (onRedoReady) onRedoReady(performRedo);
-  }, [performUndo, performRedo, onUndoReady, onRedoReady]);
+  }, [onUndoReady, onRedoReady, performUndo, performRedo]);
 
-  // Trigger from toolbar buttons if passed
-  useEffect(() => {
-    if (externalUndoTrigger) performUndo();
-  }, [externalUndoTrigger, performUndo]);
-
-  useEffect(() => {
-    if (externalRedoTrigger) performRedo();
-  }, [externalRedoTrigger, performRedo]);
-
-  // Keyboard Shortcuts: Spacebar (Pan mode), Ctrl+Z (Undo), Ctrl+Y (Redo)
+  // Keyboard Shortcuts (Space Pan, Undo, Redo)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const isInput = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
+      if (isInput) return;
 
-      if (e.code === 'Space' && !isSpacePressedRef.current) {
+      if (e.code === 'Space' && !e.repeat) {
         isSpacePressedRef.current = true;
-        const canvas = canvasRef.current;
-        if (canvas) canvas.style.cursor = 'grab';
+        const target = canvasRef.current || outerWrapperRef.current;
+        if (target) target.style.cursor = 'grab';
       }
 
-      // Undo: Ctrl+Z or Cmd+Z
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        performUndo();
+        if (e.shiftKey) {
+          performRedo();
+        } else {
+          performUndo();
+        }
       }
 
-      // Redo: Ctrl+Y or Cmd+Shift+Z or Cmd+Y
-      if (
-        ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) ||
-        ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z'))
-      ) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         performRedo();
       }
@@ -342,8 +359,8 @@ const WhiteboardCanvas = ({
     const handleKeyUp = (e) => {
       if (e.code === 'Space') {
         isSpacePressedRef.current = false;
-        const canvas = canvasRef.current;
-        if (canvas) canvas.style.cursor = isDrawingRef.current ? 'crosshair' : 'default';
+        const target = canvasRef.current || outerWrapperRef.current;
+        if (target) target.style.cursor = 'crosshair';
       }
     };
 
@@ -357,19 +374,19 @@ const WhiteboardCanvas = ({
 
   // Wheel Zoom Engine (zooms toward mouse point)
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const wrapper = outerWrapperRef.current;
+    if (!wrapper) return;
 
     const handleWheel = (e) => {
       e.preventDefault();
 
-      const rect = canvas.getBoundingClientRect();
+      const rect = wrapper.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
       // Trackpad pinch or mouse wheel
       const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-      const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.2), 5.0);
+      const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.15), 5.0);
 
       // Adjust panOffset so point under mouse remains stationary
       const newPanX = mouseX - (mouseX - panOffset.x) * (newZoom / zoom);
@@ -379,27 +396,51 @@ const WhiteboardCanvas = ({
       if (onPanChange) onPanChange({ x: newPanX, y: newPanY });
     };
 
-    canvas.addEventListener('wheel', handleWheel, { passive: false });
-    return () => canvas.removeEventListener('wheel', handleWheel);
+    wrapper.addEventListener('wheel', handleWheel, { passive: false });
+    return () => wrapper.removeEventListener('wheel', handleWheel);
   }, [zoom, panOffset, onZoomChange, onPanChange]);
 
-  // Pointer Handlers (Pan & Real-time Stroke Drawing)
-  const handlePointerDown = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // Broadcast cursor position helper (maps coordinates relative to container bounding box)
+  const emitCursorPosition = useCallback((clientX, clientY) => {
+    const container = (containerRef && containerRef.current) || outerWrapperRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const relX = clientX - rect.left;
+    const relY = clientY - rect.top;
 
+    if (sendCursorMove && username) {
+      sendCursorMove({
+        x: relX,
+        y: relY,
+        username,
+        userColor,
+        color: userColor,
+      });
+    }
+  }, [containerRef, sendCursorMove, username, userColor]);
+
+  // Workspace pointer down (for background panning in sheet mode)
+  const handleWorkspacePointerDown = (e) => {
+    if (e.target !== canvasRef.current) {
+      isPanningRef.current = true;
+      panStartRef.current = { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y };
+    }
+  };
+
+  // Canvas Pointer Handlers (Pan & Real-time Stroke Drawing)
+  const handlePointerDown = (e) => {
     // Pan via Space+Click OR Middle Click (button === 1)
     if (isSpacePressedRef.current || e.button === 1) {
       isPanningRef.current = true;
       panStartRef.current = { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y };
-      canvas.style.cursor = 'grabbing';
+      const canvas = canvasRef.current;
+      if (canvas) canvas.style.cursor = 'grabbing';
       return;
     }
 
     if (e.button !== 0) return; // Only primary button draws
 
-    const rect = canvas.getBoundingClientRect();
-    const canvasCoords = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
+    const canvasCoords = screenToCanvas(e.clientX, e.clientY);
 
     isDrawingRef.current = true;
     currentStrokeIdRef.current = `${username || 'anon'}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -410,19 +451,8 @@ const WhiteboardCanvas = ({
   };
 
   const handlePointerMove = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-
-    // Broadcast multiplayer cursor position in screen coordinates
-    if (sendCursorMove && username) {
-      sendCursorMove({
-        x: e.clientX,
-        y: e.clientY,
-        username,
-        userColor,
-      });
-    }
+    // Broadcast multiplayer cursor relative to container
+    emitCursorPosition(e.clientX, e.clientY);
 
     // Handle active pan drag
     if (isPanningRef.current) {
@@ -436,7 +466,7 @@ const WhiteboardCanvas = ({
 
     if (!isDrawingRef.current) return;
 
-    const canvasCoords = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
+    const canvasCoords = screenToCanvas(e.clientX, e.clientY);
     currentPathRef.current.push(canvasCoords);
 
     // Real-Time Stroke Streaming: emit path updates live (~16ms throttle for 60fps)
@@ -505,7 +535,6 @@ const WhiteboardCanvas = ({
 
     if (finalizedStroke) {
       setHistory((prev) => [...prev, finalizedStroke]);
-      // Clear redo stack on new action
       redoStackRef.current = [];
 
       if (sendDrawEvent) {
@@ -518,6 +547,7 @@ const WhiteboardCanvas = ({
     redraw();
   };
 
+  // Outer workspace background class (with grid toggle)
   const gridClass = showGrid
     ? theme === 'dark'
       ? 'canvas-grid-dark'
@@ -527,17 +557,73 @@ const WhiteboardCanvas = ({
     : 'bg-[#F8F9FA]';
 
   return (
-    <div 
-      className={`absolute inset-0 w-full h-full overflow-hidden select-none transition-colors duration-200 ${gridClass}`}
+    <div
+      ref={outerWrapperRef}
+      onPointerDown={handleWorkspacePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      className={`absolute inset-0 w-full h-full overflow-hidden select-none transition-colors duration-200 ${gridClass} ${
+        isFixedSheet ? 'flex items-center justify-center' : ''
+      }`}
     >
-      <canvas
-        ref={canvasRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
-        className="w-full h-full touch-none block cursor-crosshair"
-      />
+      {isFixedSheet ? (
+        /* Fixed Sheet (Paper Document) Mode */
+        <div
+          style={{
+            transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`,
+            transformOrigin: 'center center',
+            transition: isPanningRef.current ? 'none' : 'transform 50ms ease-out',
+          }}
+          className="relative shrink-0"
+        >
+          {/* Dimension & Sheet Badge */}
+          <div
+            className={`absolute -top-7 left-0 flex items-center gap-2 text-[11px] font-mono select-none px-1 ${
+              theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'
+            }`}
+          >
+            <span className="font-semibold">{sheetTitle}</span>
+            <span>•</span>
+            <span>{sheetWidth} × {sheetHeight}</span>
+            <span>•</span>
+            <span className="text-indigo-500 font-bold">{Math.round(zoom * 100)}%</span>
+          </div>
+
+          {/* Centered Styled Paper Card (Pure clean paper surface without grid lines) */}
+          <div
+            className={`rounded-lg shadow-2xl border transition-colors ${
+              theme === 'dark'
+                ? 'bg-[#18181b] border-zinc-800 shadow-black/70'
+                : 'bg-white border-zinc-200 shadow-zinc-300/80'
+            }`}
+            style={{
+              width: `${sheetWidth}px`,
+              height: `${sheetHeight}px`,
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              width={sheetWidth}
+              height={sheetHeight}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
+              className="w-full h-full block touch-none cursor-crosshair rounded-lg"
+            />
+          </div>
+        </div>
+      ) : (
+        /* Infinite Space (Unbounded Workspace) Mode */
+        <canvas
+          ref={canvasRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+          className="w-full h-full touch-none block cursor-crosshair"
+        />
+      )}
     </div>
   );
 };

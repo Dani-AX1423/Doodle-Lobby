@@ -10,7 +10,7 @@ export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
   const roomId = params?.roomId ? decodeURIComponent(params.roomId) : '';
-  const { rooms, username, setUsername } = useSocket();
+  const { rooms, username, setUsername, currentRoomInfo } = useSocket();
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -50,8 +50,9 @@ export default function RoomPage() {
     return <AuthGate onAuthSuccess={handleAuthSuccess} />;
   }
 
-  const currentRoom = rooms.find((r) => r.roomId === roomId);
+  const currentRoom = rooms.find((r) => r.roomId === roomId) || (currentRoomInfo?.roomId === roomId ? currentRoomInfo : null);
   const roomName = currentRoom?.roomName || `Canvas: ${roomId}`;
+  const canvasType = currentRoom?.canvasType || 'infinite';
 
-  return <Whiteboard roomId={roomId} roomName={roomName} />;
+  return <Whiteboard roomId={roomId} roomName={roomName} canvasType={canvasType} />;
 }

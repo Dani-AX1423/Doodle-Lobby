@@ -26,6 +26,7 @@ const defaultSocketContext = {
   drawingHistory: [],
   username: '',
   currentRoomId: '',
+  currentRoomInfo: null,
   setUsername: () => {},
   joinRoom: () => {},
   leaveRoom: () => {},
@@ -49,6 +50,7 @@ export const SocketProvider = ({ children }) => {
   const [drawingHistory, setDrawingHistory] = useState([]);
   const [username, setUsername] = useState('');
   const [currentRoomId, setCurrentRoomId] = useState('');
+  const [currentRoomInfo, setCurrentRoomInfo] = useState(null);
 
   const socketRef = useRef(null);
   const drawSubscribersRef = useRef(new Set());
@@ -90,6 +92,13 @@ export const SocketProvider = ({ children }) => {
       setIsConnected(false);
     });
 
+    // Room info event
+    socket.on('room-info', (data) => {
+      if (data) {
+        setCurrentRoomInfo(data);
+      }
+    });
+
     // Room list event
     socket.on('get-rooms', (data) => {
       if (!data) return;
@@ -98,12 +107,13 @@ export const SocketProvider = ({ children }) => {
       } else if (typeof data === 'string') {
         const roomsList = data.split(';').filter(s => s && s.trim().length > 0);
         const parsed = roomsList.map(roomStr => {
-          const [rid, rname, userCount, creator] = roomStr.split('|');
+          const [rid, rname, userCount, creator, cType] = roomStr.split('|');
           return {
             roomId: rid || '',
             roomName: rname || 'Untitled Room',
             activeUserCount: parseInt(userCount, 10) || 0,
             creatorUsername: creator || 'Unknown',
+            canvasType: cType || 'infinite',
           };
         });
         setRooms(parsed);
@@ -218,12 +228,23 @@ export const SocketProvider = ({ children }) => {
       socketRef.current.emit('leave-room', { roomId: targetRoom });
     }
     setCurrentRoomId('');
+    setCurrentRoomInfo(null);
     setUsersInRoom([]);
     setDrawingHistory([]);
     setCursorPositions([]);
   }, [currentRoomId]);
 
-  const createRoom = useCallback((roomName, userName, onCreated) => {
+  const createRoom = useCallback((roomName, userName, arg3, arg4) => {
+    let canvasType = 'infinite';
+    let onCreated = null;
+
+    if (typeof arg3 === 'function') {
+      onCreated = arg3;
+    } else {
+      if (typeof arg3 === 'string' && arg3) canvasType = arg3;
+      if (typeof arg4 === 'function') onCreated = arg4;
+    }
+
     const finalUser = userName || username || 'Creator';
     if (!socketRef.current) return;
 
@@ -238,6 +259,7 @@ export const SocketProvider = ({ children }) => {
     socketRef.current.emit('create-room', {
       roomName: roomName || 'New Canvas',
       username: finalUser,
+      canvasType: canvasType || 'infinite',
     });
   }, [username]);
 
@@ -289,6 +311,7 @@ export const SocketProvider = ({ children }) => {
     drawingHistory,
     username,
     currentRoomId,
+    currentRoomInfo,
     setUsername,
     joinRoom,
     leaveRoom,

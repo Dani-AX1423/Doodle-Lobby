@@ -25,6 +25,7 @@ const Dashboard = ({ onLogout }) => {
   const { connected, rooms, createRoom, username } = useSocket();
   const [activeTab, setActiveTab] = useState('available'); // 'available' | 'create'
   const [newCanvasName, setNewCanvasName] = useState('');
+  const [canvasType, setCanvasType] = useState('infinite'); // 'infinite' | 'fixed-16-9' | 'fixed-a4'
   const [isCreating, setIsCreating] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -44,7 +45,7 @@ const Dashboard = ({ onLogout }) => {
     const finalName = newCanvasName.trim() || 'Tactical Canvas';
     setIsCreating(true);
 
-    createRoom(finalName, username, (createdRoom) => {
+    createRoom(finalName, username, canvasType, (createdRoom) => {
       setIsCreating(false);
       setNewCanvasName('');
       if (createdRoom && createdRoom.roomId) {
@@ -250,8 +251,13 @@ const Dashboard = ({ onLogout }) => {
                         </span>
                       </div>
 
-                      <div className={`flex items-center gap-1.5 text-xs font-mono mb-6 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      <div className={`flex items-center justify-between gap-2 text-xs font-mono mb-6 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
                         <span>By {room.creatorUsername}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded border ${
+                          isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-600'
+                        }`}>
+                          {room.canvasType === 'fixed-16-9' ? '16:9 Sheet' : room.canvasType === 'fixed-a4' ? 'A4 Sheet' : 'Infinite'}
+                        </span>
                       </div>
                     </div>
 
@@ -311,6 +317,28 @@ const Dashboard = ({ onLogout }) => {
                       : 'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder:text-zinc-400'
                   }`}
                 />
+              </div>
+
+              {/* Canvas Type Selection */}
+              <div>
+                <label className={`block text-xs font-mono uppercase tracking-wider mb-2 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  Canvas Type & Layout
+                </label>
+                <div className="relative">
+                  <select
+                    value={canvasType}
+                    onChange={(e) => setCanvasType(e.target.value)}
+                    className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer ${
+                      isDark 
+                        ? 'bg-zinc-900 border-zinc-800 text-zinc-100' 
+                        : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                    }`}
+                  >
+                    <option value="infinite">Infinite Space (Unbounded canvas)</option>
+                    <option value="fixed-16-9">Fixed Sheet (16:9 Widescreen — 1920×1080)</option>
+                    <option value="fixed-a4">Fixed Sheet (A4 Portrait — 1240×1754)</option>
+                  </select>
+                </div>
               </div>
 
               {/* Presets */}

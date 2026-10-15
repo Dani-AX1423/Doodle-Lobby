@@ -10,7 +10,7 @@ import LiveCursors from './LiveCursors';
 import ZoomWidget from './ZoomWidget';
 import SettingsModal from './SettingsModal';
 
-const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
+const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard', canvasType = 'infinite' }) => {
   const router = useRouter();
   const { theme, canvasBg } = useTheme();
   const { username, usersInRoom, joinRoom, leaveRoom, clearCanvas } = useSocket();
@@ -25,7 +25,8 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
   });
 
   // Pan & Zoom Engine State
-  const [zoom, setZoom] = useState(1);
+  const initialZoom = canvasType === 'fixed-16-9' ? 0.65 : canvasType === 'fixed-a4' ? 0.5 : 1;
+  const [zoom, setZoom] = useState(initialZoom);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
 
   // Settings Modal State
@@ -34,6 +35,7 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
   // Undo / Redo callbacks
   const undoRef = useRef(null);
   const redoRef = useRef(null);
+  const canvasContainerRef = useRef(null);
 
   // Join room on mount
   useEffect(() => {
@@ -46,6 +48,18 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
       }
     };
   }, [roomId, username, joinRoom, leaveRoom]);
+
+  // Adjust default zoom if canvasType changes
+  useEffect(() => {
+    if (canvasType === 'fixed-16-9') {
+      setZoom(0.65);
+    } else if (canvasType === 'fixed-a4') {
+      setZoom(0.5);
+    } else {
+      setZoom(1);
+    }
+    setPanOffset({ x: 0, y: 0 });
+  }, [canvasType]);
 
   // Adjust default drawing color when theme changes if current color is default black/white
   useEffect(() => {
@@ -62,13 +76,14 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
   }, []);
 
   const handleZoomOut = useCallback(() => {
-    setZoom((prev) => Math.max(prev - 0.15, 0.2));
+    setZoom((prev) => Math.max(prev - 0.15, 0.15));
   }, []);
 
   const handleZoomReset = useCallback(() => {
-    setZoom(1);
+    const defaultZoom = canvasType === 'fixed-16-9' ? 0.65 : canvasType === 'fixed-a4' ? 0.5 : 1;
+    setZoom(defaultZoom);
     setPanOffset({ x: 0, y: 0 });
-  }, []);
+  }, [canvasType]);
 
   // Clear Canvas with confirmation
   const handleClear = () => {
@@ -88,10 +103,16 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
     const ctx = exportCanvas.getContext('2d');
 
     if (ctx) {
-      // Fill theme background color
-      ctx.fillStyle = canvasBg;
+      // For fixed sheets, use clean paper background
+      const isFixed = canvasType && canvasType.startsWith('fixed');
+      const bgColor = isFixed
+        ? theme === 'dark'
+          ? '#18181b'
+          : '#ffffff'
+        : canvasBg;
+
+      ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-      // Draw content
       ctx.drawImage(canvas, 0, 0);
 
       const link = document.createElement('a');
@@ -108,24 +129,31 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden select-none">
-      {/* 1. Underlying Drawing Surface (Decoupled Layer) */}
-      <WhiteboardCanvas
-        roomId={roomId}
-        username={username}
-        tool={tool}
-        lineWidth={lineWidth}
-        color={color}
-        userColor={userColor}
-        zoom={zoom}
-        panOffset={panOffset}
-        onZoomChange={setZoom}
-        onPanChange={setPanOffset}
-        onUndoReady={(fn) => { undoRef.current = fn; }}
-        onRedoReady={(fn) => { redoRef.current = fn; }}
-      />
+      {/* 1. Underlying Drawing Surface & Live Cursors inside Relative Container */}
+      <div 
+        ref={canvasContainerRef}
+        className="relative w-full h-full overflow-hidden"
+      >
+        <WhiteboardCanvas
+          containerRef={canvasContainerRef}
+          roomId={roomId}
+          canvasType={canvasType}
+          username={username}
+          tool={tool}
+          lineWidth={lineWidth}
+          color={color}
+          userColor={userColor}
+          zoom={zoom}
+          panOffset={panOffset}
+          onZoomChange={setZoom}
+          onPanChange={setPanOffset}
+          onUndoReady={(fn) => { undoRef.current = fn; }}
+          onRedoReady={(fn) => { redoRef.current = fn; }}
+        />
 
-      {/* 2. Live Remote Multiplayer Cursors */}
-      <LiveCursors username={username} />
+        {/* 2. Live Remote Multiplayer Cursors */}
+        <LiveCursors username={username} />
+      </div>
 
       {/* 3. Floating Tactical UI Controls Overlay */}
       <div className="pointer-events-none absolute inset-0 z-40">

@@ -15,7 +15,8 @@ import {
   Sliders, 
   Undo2, 
   Redo2,
-  Sparkles
+  Sparkles,
+  Grid
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
@@ -55,7 +56,7 @@ const Toolbar = ({
   onLeave,
   usersInRoom = [],
 }) => {
-  const { theme } = useTheme();
+  const { theme, showGrid, toggleGrid } = useTheme();
   const isDark = theme === 'dark';
   const [copiedToast, setCopiedToast] = useState(false);
 
@@ -134,6 +135,20 @@ const Toolbar = ({
 
         {/* Right: Actions */}
         <div className="flex items-center gap-1.5">
+          {/* Quick Grid Background Toggle */}
+          <button
+            type="button"
+            onClick={toggleGrid}
+            className={`p-2 rounded-xl border transition-all ${
+              showGrid
+                ? isDark ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400' : 'border-indigo-500/50 bg-indigo-50 text-indigo-600'
+                : isDark ? 'border-zinc-800 hover:bg-zinc-800 text-zinc-400' : 'border-zinc-200 hover:bg-zinc-100 text-zinc-500'
+            }`}
+            title={showGrid ? "Hide Grid (Clean Background)" : "Show Grid Background"}
+          >
+            <Grid className="w-3.5 h-3.5" />
+          </button>
+
           {/* Settings Button */}
           <button
             type="button"

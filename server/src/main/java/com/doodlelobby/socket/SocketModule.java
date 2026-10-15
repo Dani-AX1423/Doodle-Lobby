@@ -89,22 +89,25 @@ public class SocketModule {
         return (client, data, ackSender) -> {
             String roomName = "Untitled Room";
             String username = "Creator";
+            String canvasType = "infinite";
 
             if (data instanceof Map) {
                 Map<String, Object> map = (Map<String, Object>) data;
                 if (map.get("roomName") != null) roomName = map.get("roomName").toString();
                 if (map.get("username") != null) username = map.get("username").toString();
+                if (map.get("canvasType") != null) canvasType = map.get("canvasType").toString();
             } else if (data instanceof String) {
                 try {
                     Map<String, Object> map = gson.fromJson((String) data, Map.class);
                     if (map != null) {
                         if (map.get("roomName") != null) roomName = map.get("roomName").toString();
                         if (map.get("username") != null) username = map.get("username").toString();
+                        if (map.get("canvasType") != null) canvasType = map.get("canvasType").toString();
                     }
                 } catch (Exception ignored) {}
             }
 
-            Room room = createRoom(roomName, username, client.getSessionId().toString());
+            Room room = createRoom(roomName, username, client.getSessionId().toString(), canvasType);
             String roomId = room.getRoomId();
 
             client.set("roomId", roomId);
@@ -118,10 +121,12 @@ public class SocketModule {
                     "roomId", roomId,
                     "roomName", room.getRoomName(),
                     "username", username,
-                    "color", color
+                    "color", color,
+                    "canvasType", room.getCanvasType()
             );
 
             client.sendEvent("room-created", response);
+            client.sendEvent("room-info", response);
             server.getRoomOperations(roomId).sendEvent("user-joined", username + "|" + color);
             broadcastRooms();
         };
@@ -165,6 +170,15 @@ public class SocketModule {
 
             User user = joinRoom(roomId, username, client.getSessionId().toString());
             String color = user != null ? user.getColor() : generateColor();
+
+            // Send room metadata to joining client
+            Map<String, Object> roomInfo = Map.of(
+                    "roomId", room.getRoomId(),
+                    "roomName", room.getRoomName(),
+                    "creatorUsername", room.getCreatorUsername(),
+                    "canvasType", room.getCanvasType()
+            );
+            client.sendEvent("room-info", roomInfo);
 
             // Send existing drawing history to the joining client
             for (byte[] stroke : room.getDrawingHistory().values()) {
@@ -289,7 +303,7 @@ public class SocketModule {
     public String getFormattedRooms() {
         return roomService.getAllRooms().values().stream()
                 .filter(r -> !r.isDestroyed())
-                .map(r -> r.getRoomId() + "|" + r.getRoomName() + "|" + r.getActiveUserCount() + "|" + r.getCreatorUsername())
+                .map(r -> r.getRoomId() + "|" + r.getRoomName() + "|" + r.getActiveUserCount() + "|" + r.getCreatorUsername() + "|" + r.getCanvasType())
                 .collect(Collectors.joining(";"));
     }
 
@@ -305,9 +319,9 @@ public class SocketModule {
         return roomService.generateColor();
     }
 
-    public Room createRoom(String roomName, String username, String socketId) {
+    public Room createRoom(String roomName, String username, String socketId, String canvasType) {
         String roomId = generateRoomId();
-        Room room = roomService.createRoom(roomId, roomName, username);
+        Room room = roomService.createRoom(roomId, roomName, username, canvasType);
         if (socketId != null) {
             User creator = roomService.createUser(socketId, username);
             roomService.addUserToRoom(roomId, creator);
@@ -315,8 +329,12 @@ public class SocketModule {
         return room;
     }
 
+    public Room createRoom(String roomName, String username, String socketId) {
+        return createRoom(roomName, username, socketId, "infinite");
+    }
+
     public Room createRoom(String roomName, String username) {
-        return createRoom(roomName, username, null);
+        return createRoom(roomName, username, null, "infinite");
     }
 
     public User joinRoom(String roomId, String username, String socketId) {

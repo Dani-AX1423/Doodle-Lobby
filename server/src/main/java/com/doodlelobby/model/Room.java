@@ -9,6 +9,7 @@ public class Room {
     private String roomId;
     private String roomName;
     private String creatorUsername;
+    private String canvasType = "infinite"; // "infinite", "fixed-16-9", "fixed-a4"
     private ConcurrentHashMap<String, User> users; // socketId -> User
     private ConcurrentHashMap<String, byte[]> drawingHistory; // stroke data (JSON bytes)
     private long lastActivity; // timestamp for auto-destruction timer
@@ -18,9 +19,14 @@ public class Room {
     }
 
     public Room(String roomId, String roomName, String creatorUsername) {
+        this(roomId, roomName, creatorUsername, "infinite");
+    }
+
+    public Room(String roomId, String roomName, String creatorUsername, String canvasType) {
         this.roomId = roomId;
         this.roomName = roomName;
         this.creatorUsername = creatorUsername;
+        this.canvasType = (canvasType != null && !canvasType.isEmpty()) ? canvasType : "infinite";
         this.users = new ConcurrentHashMap<>();
         this.drawingHistory = new ConcurrentHashMap<>();
         this.lastActivity = System.currentTimeMillis();
@@ -49,6 +55,14 @@ public class Room {
 
     public void setCreatorUsername(String creatorUsername) {
         this.creatorUsername = creatorUsername;
+    }
+
+    public String getCanvasType() {
+        return canvasType != null ? canvasType : "infinite";
+    }
+
+    public void setCanvasType(String canvasType) {
+        this.canvasType = canvasType;
     }
 
     public ConcurrentHashMap<String, User> getUsers() {
