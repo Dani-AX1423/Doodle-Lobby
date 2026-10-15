@@ -24,7 +24,7 @@ const WhiteboardCanvas = ({
 }) => {
   const canvasRef = useRef(null);
   const outerWrapperRef = useRef(null);
-  const { theme, showGrid } = useTheme();
+  const { theme } = useTheme();
 
   // Mode identification
   const isFixedSheet = canvasType === 'fixed-16-9' || canvasType === 'fixed-a4';
@@ -57,14 +57,13 @@ const WhiteboardCanvas = ({
 
   const { sendDrawEvent, sendCursorMove, subscribeDrawEvent, subscribeClearCanvas } = useSocket();
 
-  // Helper to convert screen coordinates to canvas coordinates
+  // Helper to convert screen coordinates to untransformed canvas coordinates
   const screenToCanvas = useCallback((clientX, clientY) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
 
     if (isFixedSheet) {
-      // In fixed sheet mode, map screen position directly to fixed canvas dimensions
       const rawX = (clientX - rect.left) * (canvas.width / rect.width);
       const rawY = (clientY - rect.top) * (canvas.height / rect.height);
       return {
@@ -72,7 +71,6 @@ const WhiteboardCanvas = ({
         y: Math.max(0, Math.min(rawY, canvas.height)),
       };
     } else {
-      // In infinite mode, pan and zoom are applied via 2D context transform
       return {
         x: (clientX - rect.left - panOffset.x) / zoom,
         y: (clientY - rect.top - panOffset.y) / zoom,
@@ -138,22 +136,19 @@ const WhiteboardCanvas = ({
     ctx.restore();
   }, []);
 
-  // Master Redraw function
-  const redraw = useCallback(() => {
+  // Synchronous Canvas Redraw Function (Clears and re-renders all stored strokes immediately)
+  const redrawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     if (isFixedSheet) {
-      // Fixed sheet: canvas dimensions are intrinsic sheetWidth x sheetHeight
-      // Scaling and panning are handled smoothly by CSS transform on the card wrapper
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
     } else {
-      // Infinite mode: canvas is resized to match viewport, zoom and pan applied to 2D context
       const dpr = window.devicePixelRatio || 1;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -162,8 +157,8 @@ const WhiteboardCanvas = ({
       ctx.lineJoin = 'round';
     }
 
-    // 1. Draw committed history strokes
-    const strokes = historyRef.current;
+    // 1. Draw committed history strokes synchronously from historyRef.current
+    const strokes = historyRef.current || [];
     for (let i = 0; i < strokes.length; i++) {
       renderSingleStroke(ctx, strokes[i]);
     }
@@ -197,25 +192,25 @@ const WhiteboardCanvas = ({
     if (isFixedSheet) {
       canvas.width = sheetWidth;
       canvas.height = sheetHeight;
-      redraw();
+      redrawCanvas();
     } else {
       const updateSize = () => {
         const rect = canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
-        redraw();
+        redrawCanvas();
       };
       updateSize();
       window.addEventListener('resize', updateSize);
       return () => window.removeEventListener('resize', updateSize);
     }
-  }, [isFixedSheet, sheetWidth, sheetHeight, redraw]);
+  }, [isFixedSheet, sheetWidth, sheetHeight, redrawCanvas]);
 
   // Trigger redraw on zoom or pan changes
   useEffect(() => {
-    redraw();
-  }, [zoom, panOffset, redraw]);
+    redrawCanvas();
+  }, [zoom, panOffset, redrawCanvas]);
 
   // Remote Socket Subscriptions (streaming strokes, undo, clear)
   useEffect(() => {
@@ -233,26 +228,17 @@ const WhiteboardCanvas = ({
       // Remote Undo Event
       if (data.type === 'undo') {
         const targetId = data.strokeId;
-        setHistory((prev) => {
-          if (targetId) {
-            return prev.filter((s) => s.strokeId !== targetId);
-          }
-          for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i].username === data.username) {
-              const updated = [...prev];
-              updated.splice(i, 1);
-              return updated;
-            }
-          }
-          return prev.slice(0, -1);
-        });
+        const updated = historyRef.current.filter((s) => s.strokeId !== targetId);
+        historyRef.current = updated;
+        setHistory(updated);
+        redrawCanvas();
         return;
       }
 
       // Real-time live stroke streaming
       if (data.isStreaming && data.strokeId) {
         remoteStreamingRef.current.set(data.strokeId, data);
-        redraw();
+        redrawCanvas();
         return;
       }
 
@@ -260,68 +246,74 @@ const WhiteboardCanvas = ({
       if (data.strokeId) {
         remoteStreamingRef.current.delete(data.strokeId);
       }
-      setHistory((prev) => [...prev, data]);
-      redraw();
+      historyRef.current = [...historyRef.current, data];
+      setHistory(historyRef.current);
+      redrawCanvas();
     });
 
     const unsubClear = subscribeClearCanvas(() => {
+      historyRef.current = [];
       setHistory([]);
       undoStackRef.current = [];
       redoStackRef.current = [];
       remoteStreamingRef.current.clear();
-      redraw();
+      redrawCanvas();
     });
 
     return () => {
       unsubDraw();
       unsubClear();
     };
-  }, [subscribeDrawEvent, subscribeClearCanvas, redraw]);
+  }, [subscribeDrawEvent, subscribeClearCanvas, redrawCanvas]);
 
   // Local Undo Action
   const performUndo = useCallback(() => {
-    setHistory((prev) => {
-      if (prev.length === 0) return prev;
-      let lastIndex = -1;
-      for (let i = prev.length - 1; i >= 0; i--) {
-        if (!prev[i].username || prev[i].username === username) {
-          lastIndex = i;
-          break;
-        }
+    const currentHist = historyRef.current;
+    if (currentHist.length === 0) return;
+
+    let lastIndex = -1;
+    for (let i = currentHist.length - 1; i >= 0; i--) {
+      if (!currentHist[i].username || currentHist[i].username === username) {
+        lastIndex = i;
+        break;
       }
-      if (lastIndex === -1) lastIndex = prev.length - 1;
+    }
+    if (lastIndex === -1) lastIndex = currentHist.length - 1;
 
-      const strokeToUndo = prev[lastIndex];
-      redoStackRef.current.push(strokeToUndo);
+    const strokeToUndo = currentHist[lastIndex];
+    redoStackRef.current.push(strokeToUndo);
 
-      const nextHistory = [...prev];
-      nextHistory.splice(lastIndex, 1);
+    const nextHistory = [...currentHist];
+    nextHistory.splice(lastIndex, 1);
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
 
-      if (sendDrawEvent) {
-        sendDrawEvent({
-          type: 'undo',
-          strokeId: strokeToUndo.strokeId,
-          username,
-        });
-      }
+    if (sendDrawEvent) {
+      sendDrawEvent({
+        type: 'undo',
+        strokeId: strokeToUndo.strokeId,
+        username,
+      });
+    }
 
-      return nextHistory;
-    });
-  }, [username, sendDrawEvent]);
+    redrawCanvas();
+  }, [username, sendDrawEvent, redrawCanvas]);
 
   // Local Redo Action
   const performRedo = useCallback(() => {
     if (redoStackRef.current.length === 0) return;
     const strokeToRedo = redoStackRef.current.pop();
 
-    setHistory((prev) => {
-      const nextHistory = [...prev, strokeToRedo];
-      if (sendDrawEvent) {
-        sendDrawEvent(strokeToRedo);
-      }
-      return nextHistory;
-    });
-  }, [sendDrawEvent]);
+    const nextHistory = [...historyRef.current, strokeToRedo];
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
+
+    if (sendDrawEvent) {
+      sendDrawEvent(strokeToRedo);
+    }
+
+    redrawCanvas();
+  }, [sendDrawEvent, redrawCanvas]);
 
   // Expose Undo/Redo handles
   useEffect(() => {
@@ -372,52 +364,34 @@ const WhiteboardCanvas = ({
     };
   }, [performUndo, performRedo]);
 
-  // Wheel Zoom Engine (zooms toward mouse point)
+  // POINTER-ANCHORED ZOOM (Anchor Zoom at Mouse Location)
   useEffect(() => {
+    const canvas = canvasRef.current;
     const wrapper = outerWrapperRef.current;
-    if (!wrapper) return;
+    const target = isFixedSheet ? wrapper : canvas;
+    if (!target) return;
 
     const handleWheel = (e) => {
       e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+      const newScale = Math.min(Math.max(zoom * zoomFactor, 0.2), 5);
 
-      const rect = wrapper.getBoundingClientRect();
+      const activeCanvas = canvasRef.current;
+      if (!activeCanvas) return;
+      const rect = activeCanvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      // Trackpad pinch or mouse wheel
-      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-      const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.15), 5.0);
+      const newPanX = mouseX - (mouseX - panOffset.x) * (newScale / zoom);
+      const newPanY = mouseY - (mouseY - panOffset.y) * (newScale / zoom);
 
-      // Adjust panOffset so point under mouse remains stationary
-      const newPanX = mouseX - (mouseX - panOffset.x) * (newZoom / zoom);
-      const newPanY = mouseY - (mouseY - panOffset.y) * (newZoom / zoom);
-
-      if (onZoomChange) onZoomChange(newZoom);
       if (onPanChange) onPanChange({ x: newPanX, y: newPanY });
+      if (onZoomChange) onZoomChange(newScale);
     };
 
-    wrapper.addEventListener('wheel', handleWheel, { passive: false });
-    return () => wrapper.removeEventListener('wheel', handleWheel);
-  }, [zoom, panOffset, onZoomChange, onPanChange]);
-
-  // Broadcast cursor position helper (maps coordinates relative to container bounding box)
-  const emitCursorPosition = useCallback((clientX, clientY) => {
-    const container = (containerRef && containerRef.current) || outerWrapperRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const relX = clientX - rect.left;
-    const relY = clientY - rect.top;
-
-    if (sendCursorMove && username) {
-      sendCursorMove({
-        x: relX,
-        y: relY,
-        username,
-        userColor,
-        color: userColor,
-      });
-    }
-  }, [containerRef, sendCursorMove, username, userColor]);
+    target.addEventListener('wheel', handleWheel, { passive: false });
+    return () => target.removeEventListener('wheel', handleWheel);
+  }, [isFixedSheet, zoom, panOffset, onZoomChange, onPanChange]);
 
   // Workspace pointer down (for background panning in sheet mode)
   const handleWorkspacePointerDown = (e) => {
@@ -447,12 +421,27 @@ const WhiteboardCanvas = ({
     currentPathRef.current = [canvasCoords];
     lastStreamTimeRef.current = Date.now();
 
-    redraw();
+    redrawCanvas();
   };
 
   const handlePointerMove = (e) => {
-    // Broadcast multiplayer cursor relative to container
-    emitCursorPosition(e.clientX, e.clientY);
+    // Transform coordinates for multiplayer cursor broadcast (world coordinates)
+    const canvas = canvasRef.current;
+    if (canvas && sendCursorMove && username) {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const worldX = (mouseX - panOffset.x) / zoom;
+      const worldY = (mouseY - panOffset.y) / zoom;
+
+      sendCursorMove({
+        x: worldX,
+        y: worldY,
+        username,
+        color: userColor,
+        userColor,
+      });
+    }
 
     // Handle active pan drag
     if (isPanningRef.current) {
@@ -486,9 +475,10 @@ const WhiteboardCanvas = ({
       }
     }
 
-    redraw();
+    redrawCanvas();
   };
 
+  // STROKE DISAPPEARING ON RELEASE (Instant Repaint Fix)
   const handlePointerUp = () => {
     if (isPanningRef.current) {
       isPanningRef.current = false;
@@ -534,9 +524,13 @@ const WhiteboardCanvas = ({
     }
 
     if (finalizedStroke) {
-      setHistory((prev) => [...prev, finalizedStroke]);
+      // 1. Instantly append to historyRef stack so history is synchronously up-to-date
+      historyRef.current = [...historyRef.current, finalizedStroke];
+      // 2. Schedule React state update
+      setHistory(historyRef.current);
       redoStackRef.current = [];
 
+      // 3. Emit stroke payload to socket
       if (sendDrawEvent) {
         sendDrawEvent(finalizedStroke);
       }
@@ -544,17 +538,13 @@ const WhiteboardCanvas = ({
 
     currentPathRef.current = [];
     currentStrokeIdRef.current = '';
-    redraw();
+
+    // 4. IMMEDIATELY execute full canvas repaint synchronously before returning
+    redrawCanvas();
   };
 
-  // Outer workspace background class (with grid toggle)
-  const gridClass = showGrid
-    ? theme === 'dark'
-      ? 'canvas-grid-dark'
-      : 'canvas-grid-light'
-    : theme === 'dark'
-    ? 'bg-[#121214]'
-    : 'bg-[#F8F9FA]';
+  // Clean solid background color (no grid lines, no SVG patterns)
+  const containerBg = theme === 'dark' ? 'bg-[#121214]' : 'bg-[#F8F9FA]';
 
   return (
     <div
@@ -562,7 +552,7 @@ const WhiteboardCanvas = ({
       onPointerDown={handleWorkspacePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className={`absolute inset-0 w-full h-full overflow-hidden select-none transition-colors duration-200 ${gridClass} ${
+      className={`absolute inset-0 w-full h-full overflow-hidden select-none transition-colors duration-200 ${containerBg} ${
         isFixedSheet ? 'flex items-center justify-center' : ''
       }`}
     >
@@ -589,7 +579,7 @@ const WhiteboardCanvas = ({
             <span className="text-indigo-500 font-bold">{Math.round(zoom * 100)}%</span>
           </div>
 
-          {/* Centered Styled Paper Card (Pure clean paper surface without grid lines) */}
+          {/* Centered Styled Paper Card (Solid clean surface, no grid lines) */}
           <div
             className={`rounded-lg shadow-2xl border transition-colors ${
               theme === 'dark'
@@ -614,7 +604,7 @@ const WhiteboardCanvas = ({
           </div>
         </div>
       ) : (
-        /* Infinite Space (Unbounded Workspace) Mode */
+        /* Infinite Space (Unbounded Workspace) Mode - Solid clean surface, no grid lines */
         <canvas
           ref={canvasRef}
           onPointerDown={handlePointerDown}

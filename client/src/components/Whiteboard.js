@@ -128,11 +128,15 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard', canvasType 
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden select-none">
-      {/* 1. Underlying Drawing Surface & Live Cursors inside Relative Container */}
+    <div className={`relative w-screen h-screen overflow-hidden select-none transition-colors ${
+      theme === 'dark' ? 'bg-[#121214]' : 'bg-[#F8F9FA]'
+    }`}>
+      {/* 1. Underlying Drawing Surface & Live Cursors inside Relative Container (Solid clean background, no grid) */}
       <div 
         ref={canvasContainerRef}
-        className="relative w-full h-full overflow-hidden"
+        className={`relative w-full h-full overflow-hidden transition-colors ${
+          theme === 'dark' ? 'bg-[#121214]' : 'bg-[#F8F9FA]'
+        }`}
       >
         <WhiteboardCanvas
           containerRef={canvasContainerRef}
@@ -151,8 +155,12 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard', canvasType 
           onRedoReady={(fn) => { redoRef.current = fn; }}
         />
 
-        {/* 2. Live Remote Multiplayer Cursors */}
-        <LiveCursors username={username} />
+        {/* 2. Live Remote Multiplayer Cursors with scale & pan transform sync */}
+        <LiveCursors 
+          username={username} 
+          scale={zoom}
+          pan={panOffset}
+        />
       </div>
 
       {/* 3. Floating Tactical UI Controls Overlay */}
