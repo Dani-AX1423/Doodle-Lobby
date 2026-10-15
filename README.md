@@ -1,17 +1,24 @@
 # DoodleLobby 🎨 — Real-Time Collaborative Whiteboard
 
-> A sleek, high-performance, real-time multiplayer digital whiteboard and canvas studio built with Next.js 14, Tailwind CSS, Spring Boot, and Netty-SocketIO.
+> A sleek, high-performance, real-time multiplayer digital whiteboard and canvas studio built with **Next.js 14**, **Tailwind CSS**, **Spring Boot**, and **Netty-SocketIO**.
 
 ---
 
 ## ✨ Features
 
-- **⚡ Real-Time Multi-User Stroke Sync**: Millisecond-level synchronization of pencil strokes, lines, rectangles, circles, and erasers across all connected artists.
-- **🎯 Live Multiplayer Cursors**: Colored live pointer arrows with artist name tags showing everyone's movements in real time.
-- **🔐 Protected Lobby Access**: Built-in authentication gate with password protection and artist handles.
+- **⚡ Real-Time Multi-User Stroke Sync**: 60fps streaming synchronization of pencil strokes, lines, rectangles, circles, and erasers across all connected artists.
+- **🎯 Transform-Synced Remote Cursors**: Live pointer arrows with artist name badges tinted in assigned colors, precisely synchronized with canvas scale and pan offsets.
+- **📄 Fixed Sheet & Infinite Workspace Modes**:
+  - **Infinite Space**: Unbounded fluid canvas for freeform brainstorming.
+  - **Fixed Sheet (16:9 Widescreen)**: Standard 1920×1080 paper document mode.
+  - **Fixed Sheet (A4 Portrait)**: Standard 1240×1754 printable document mode with boundary clamping.
+- **🔍 Pointer-Anchored Pan & Zoom**: Smooth mouse wheel / trackpad zooming anchored directly at the cursor location, with Spacebar + drag panning.
+- **🧹 Standardized Eraser Pipeline**: Normalized coordinate and stroke width scaling so erasers never deform or jump size on mouse release or remote screens.
+- **↩️ Multi-User Undo / Redo**: Instant synchronous repainting and broadcasted history undo/redo stack with keyboard shortcuts (`Ctrl+Z` / `Ctrl+Y`).
+- **🌓 Tactical Light & Dark Mode**: High-contrast modern interface with solid clean canvas surfaces and instant theme switching.
+- **🔐 Protected Lobby Access**: Built-in authentication gate with passcode validation and artist handles.
 - **⏱️ Auto-Cleaning Idle Rooms**: Intelligent 2-minute grace period automatically garbage-collects inactive rooms and purges memory when everyone leaves.
-- **🖼️ High-Res Canvas PNG Export**: Instant single-click export of whiteboards with dark aesthetic backgrounds for easy team sharing.
-- **🎨 Modern Dark Aesthetics**: Linear / V0.dev inspired design with glassmorphism, subtle grid texturing (`bg-grid-white/[0.03]`), vibrant gradient accents, and Lucide React icons.
+- **🖼️ Clean PNG Export**: Instant single-click export cropped to exact sheet dimensions or canvas drawing.
 
 ---
 
@@ -30,6 +37,7 @@
 - **WebSocket Engine**: [Netty-SocketIO 1.7.25](https://github.com/mrniko/netty-socketio)
 - **JSON Serialization**: Google Gson & FasterXML Jackson
 - **Build Tool**: Apache Maven
+- **Containerization**: Docker (multi-stage JRE 17 build)
 
 ---
 
@@ -40,9 +48,10 @@ DoodleLobby/
 ├── client/                     # Next.js frontend application
 │   ├── src/
 │   │   ├── app/                # App Router (layout, page, dynamic room route)
-│   │   ├── components/         # AuthGate, Dashboard, Whiteboard, Toolbar, Canvas, Cursors
+│   │   ├── components/         # Dashboard, Whiteboard, Canvas, LiveCursors, Toolbar, Settings
+│   │   ├── context/            # ThemeContext (Light / Dark mode)
 │   │   └── hooks/              # useSocket.js (SocketContext & SocketProvider)
-│   ├── .env.example            # Client environment variable template
+│   ├── .env.example            # Client environment template
 │   ├── .gitignore              # Client ignore rules
 │   ├── package.json
 │   └── tailwind.config.js
@@ -50,8 +59,9 @@ DoodleLobby/
 │   ├── src/main/java/com/doodlelobby/
 │   │   ├── config/             # SocketIOConfig, RoomService
 │   │   ├── model/              # Room, User, DrawData
-│   │   └── socket/             # SocketModule (Event listeners & server lifecycle)
+│   │   └── socket/             # SocketModule (Event listeners & room lifecycle)
 │   ├── src/main/resources/     # application.properties
+│   ├── Dockerfile              # Multi-stage Docker build for cloud deployments
 │   ├── .gitignore              # Server ignore rules
 │   └── pom.xml                 # Maven build configuration
 ├── .gitignore                  # Root ignore rules
@@ -127,34 +137,40 @@ DoodleLobby/
 
 ---
 
-## ☁️ Deployment Guide
+## ☁️ Zero-Cost Cloud Deployment
 
-### Backend: Deploying to Render
+### 1. Backend: Deploy to Render / Railway
 
-1. Create a new **Web Service** on [Render](https://render.com/).
+#### Option A: Deploy via Dockerfile (Recommended)
+1. Create a new **Web Service** on [Render](https://render.com/) or [Railway](https://railway.app/).
 2. Connect your GitHub repository.
 3. Configure the following settings:
    - **Root Directory**: `server`
-   - **Runtime**: `Java` (or `Docker`)
-   - **Build Command**: `mvn clean package -DskipTests`
-   - **Start Command**: `java -jar target/doodlelobby-server-1.0.0-SNAPSHOT.jar`
+   - **Environment / Runtime**: `Docker`
+   - **Dockerfile Path**: `Dockerfile`
 4. Set Environment Variables:
-   - `PORT`: `5000` (or leave default, Render sets this automatically)
+   - `PORT`: `5000` (Render sets `PORT` automatically; the server adapts dynamically)
    - `ROOM_SECRET_PASSWORD`: Your custom secure lobby passcode
    - `ROOM_IDLE_TIMEOUT`: `120` (seconds before auto-deleting empty rooms)
-5. Copy your deployed service URL (e.g. `https://doodlelobby-server.onrender.com`).
+5. Copy your deployed service URL (e.g., `https://doodlelobby-backend.onrender.com`).
+
+#### Option B: Deploy via Native Java Runtime
+- **Root Directory**: `server`
+- **Runtime**: `Java 17`
+- **Build Command**: `mvn clean package -DskipTests`
+- **Start Command**: `java -jar target/doodlelobby-server-1.0.0-SNAPSHOT.jar`
 
 ---
 
-### Frontend: Deploying to Vercel
+### 2. Frontend: Deploy to Vercel
 
 1. Import your repository into [Vercel](https://vercel.com/).
 2. Select the `client` directory as the **Root Directory**.
 3. Set the Framework Preset to **Next.js**.
 4. In **Environment Variables**, add:
    - **Key**: `NEXT_PUBLIC_SOCKET_SERVER_URL`
-   - **Value**: Your backend URL (e.g. `https://doodlelobby-server.onrender.com`)
-5. Click **Deploy**. Vercel will automatically build and publish your Next.js application.
+   - **Value**: Your deployed backend URL (e.g., `https://doodlelobby-backend.onrender.com`)
+5. Click **Deploy**. Vercel will automatically build and publish your Next.js application with zero configuration.
 
 ---
 
@@ -163,7 +179,8 @@ DoodleLobby/
 | Variable | Scope | Default | Description |
 |---|---|---|---|
 | `NEXT_PUBLIC_SOCKET_SERVER_URL` | Client | `http://localhost:5000` | Target URL for backend WebSocket server |
-| `PORT` | Server | `5000` | HTTP/Socket.IO port for backend |
+| `PORT` | Server | `5000` | HTTP/Socket.IO port assigned by cloud host |
+| `SOCKET_PORT` | Server | `${PORT}` | Explicit Socket.IO binding port |
 | `ROOM_SECRET_PASSWORD` | Server | `doodlelobby-secret` | Shared secret passcode for lobby access |
 | `ROOM_IDLE_TIMEOUT` | Server | `120` | Inactivity countdown (seconds) before destroying empty rooms |
 
