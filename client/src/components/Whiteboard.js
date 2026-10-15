@@ -1,25 +1,41 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSocket } from '../hooks/useSocket';
+import { useTheme } from '../context/ThemeContext';
 import Toolbar from './Toolbar';
 import WhiteboardCanvas from './WhiteboardCanvas';
 import LiveCursors from './LiveCursors';
+import ZoomWidget from './ZoomWidget';
+import SettingsModal from './SettingsModal';
 
 const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
   const router = useRouter();
-  const { connected, username, usersInRoom, joinRoom, leaveRoom, clearCanvas } = useSocket();
+  const { theme, canvasBg } = useTheme();
+  const { username, usersInRoom, joinRoom, leaveRoom, clearCanvas } = useSocket();
 
+  // Tool state
   const [tool, setTool] = useState('pencil');
   const [lineWidth, setLineWidth] = useState(3);
-  const [color, setColor] = useState('#ffffff');
+  const [color, setColor] = useState(() => (theme === 'dark' ? '#ffffff' : '#18181b'));
   const [userColor] = useState(() => {
     const palette = ['#6366f1', '#a855f7', '#ec4899', '#10b981', '#06b6d4', '#f59e0b'];
     return palette[Math.floor(Math.random() * palette.length)];
   });
 
-  // Join the room on mount
+  // Pan & Zoom Engine State
+  const [zoom, setZoom] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+
+  // Settings Modal State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Undo / Redo callbacks
+  const undoRef = useRef(null);
+  const redoRef = useRef(null);
+
+  // Join room on mount
   useEffect(() => {
     if (roomId && username) {
       joinRoom(roomId, username);
@@ -31,30 +47,52 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
     };
   }, [roomId, username, joinRoom, leaveRoom]);
 
-  // Handle clear canvas
+  // Adjust default drawing color when theme changes if current color is default black/white
+  useEffect(() => {
+    setColor((prev) => {
+      if (theme === 'dark' && prev === '#18181b') return '#ffffff';
+      if (theme === 'light' && prev === '#ffffff') return '#18181b';
+      return prev;
+    });
+  }, [theme]);
+
+  // Zoom Controls
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(prev + 0.15, 5.0));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(prev - 0.15, 0.2));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoom(1);
+    setPanOffset({ x: 0, y: 0 });
+  }, []);
+
+  // Clear Canvas with confirmation
   const handleClear = () => {
-    if (window.confirm('Are you sure you want to clear the entire canvas for everyone?')) {
+    if (typeof window !== 'undefined' && window.confirm('Clear the entire whiteboard for everyone?')) {
       clearCanvas(roomId);
     }
   };
 
-  // Handle PNG export
+  // Clean PNG Export: Decoupled canvas snapshot with theme background
   const handleExport = () => {
     const canvas = document.querySelector('canvas');
     if (!canvas) return;
 
-    // Create an offscreen canvas to combine dark background and drawing
     const exportCanvas = document.createElement('canvas');
     exportCanvas.width = canvas.width;
     exportCanvas.height = canvas.height;
-    const exportCtx = exportCanvas.getContext('2d');
+    const ctx = exportCanvas.getContext('2d');
 
-    if (exportCtx) {
-      // Fill dark aesthetic background
-      exportCtx.fillStyle = '#020617';
-      exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-      // Draw canvas contents
-      exportCtx.drawImage(canvas, 0, 0);
+    if (ctx) {
+      // Fill theme background color
+      ctx.fillStyle = canvasBg;
+      ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+      // Draw content
+      ctx.drawImage(canvas, 0, 0);
 
       const link = document.createElement('a');
       link.download = `doodlelobby-${roomId || 'canvas'}.png`;
@@ -69,28 +107,8 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950">
-      {/* Background Grid Pattern */}
-      <div className="absolute inset-0 bg-grid-white/[0.03] pointer-events-none" />
-
-      {/* Floating Toolbar and Top Navigation */}
-      <Toolbar
-        roomId={roomId}
-        roomName={roomName}
-        tool={tool}
-        setTool={setTool}
-        lineWidth={lineWidth}
-        setLineWidth={setLineWidth}
-        color={color}
-        setColor={setColor}
-        onClear={handleClear}
-        onExport={handleExport}
-        username={username}
-        onLeave={handleLeave}
-        usersInRoom={usersInRoom}
-      />
-
-      {/* Canvas Drawing Area */}
+    <div className="relative w-screen h-screen overflow-hidden select-none">
+      {/* 1. Underlying Drawing Surface (Decoupled Layer) */}
       <WhiteboardCanvas
         roomId={roomId}
         username={username}
@@ -98,10 +116,54 @@ const Whiteboard = ({ roomId, roomName = 'Collaborative Whiteboard' }) => {
         lineWidth={lineWidth}
         color={color}
         userColor={userColor}
+        zoom={zoom}
+        panOffset={panOffset}
+        onZoomChange={setZoom}
+        onPanChange={setPanOffset}
+        onUndoReady={(fn) => { undoRef.current = fn; }}
+        onRedoReady={(fn) => { redoRef.current = fn; }}
       />
 
-      {/* Live Remote Cursors Overlay */}
+      {/* 2. Live Remote Multiplayer Cursors */}
       <LiveCursors username={username} />
+
+      {/* 3. Floating Tactical UI Controls Overlay */}
+      <div className="pointer-events-none absolute inset-0 z-40">
+        <div className="pointer-events-auto">
+          {/* Top Navbar & Bottom Tool Dock */}
+          <Toolbar
+            roomId={roomId}
+            roomName={roomName}
+            tool={tool}
+            setTool={setTool}
+            lineWidth={lineWidth}
+            setLineWidth={setLineWidth}
+            color={color}
+            setColor={setColor}
+            onClear={handleClear}
+            onExport={handleExport}
+            onUndo={() => undoRef.current && undoRef.current()}
+            onRedo={() => redoRef.current && redoRef.current()}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onLeave={handleLeave}
+            usersInRoom={usersInRoom}
+          />
+
+          {/* Minimalist Bottom-Left Zoom Widget */}
+          <ZoomWidget
+            zoom={zoom}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onZoomReset={handleZoomReset}
+          />
+        </div>
+      </div>
+
+      {/* 4. Studio Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </div>
   );
 };

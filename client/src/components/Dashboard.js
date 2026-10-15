@@ -3,32 +3,36 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSocket } from '../hooks/useSocket';
+import { useTheme } from '../context/ThemeContext';
+import SettingsModal from './SettingsModal';
 import { 
   Palette, 
   PlusCircle, 
   Layers, 
-  Users, 
   ArrowRight, 
-  Sparkles, 
   LogOut, 
-  Wifi, 
-  WifiOff, 
-  CheckCircle2,
-  Brush
+  Sliders, 
+  Brush,
+  Radio,
+  Sparkles
 } from 'lucide-react';
 
 const Dashboard = ({ onLogout }) => {
   const router = useRouter();
-  const { connected, rooms, createRoom, username, setUsername } = useSocket();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
+  const { connected, rooms, createRoom, username } = useSocket();
   const [activeTab, setActiveTab] = useState('available'); // 'available' | 'create'
   const [newCanvasName, setNewCanvasName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const presets = [
-    { title: '⚡ Sprint Brainstorm', desc: 'Quick ideation and flow mapping' },
-    { title: '🎨 Freehand Studio', desc: 'Open sketchpad for creative doodles' },
-    { title: '📐 UI Architecture', desc: 'Wireframing layouts and user journeys' },
-    { title: '💡 Team Retro Board', desc: 'Post-launch reflections and doodles' },
+    { title: '⚡ Sprint Retrospective', desc: 'Flow mapping & team retro board' },
+    { title: '📐 UI Architecture', desc: 'Wireframing layouts & system schemas' },
+    { title: '💡 Rapid Ideation', desc: 'Freehand sketching & brainstorm mesh' },
+    { title: '🎨 Freehand Studio', desc: 'Open tactile canvas for raw sketching' },
   ];
 
   const handleJoin = (roomId) => {
@@ -37,7 +41,7 @@ const Dashboard = ({ onLogout }) => {
 
   const handleCreate = (e) => {
     if (e) e.preventDefault();
-    const finalName = newCanvasName.trim() || 'Untitled Canvas';
+    const finalName = newCanvasName.trim() || 'Tactical Canvas';
     setIsCreating(true);
 
     createRoom(finalName, username, (createdRoom) => {
@@ -48,185 +52,218 @@ const Dashboard = ({ onLogout }) => {
       }
     });
 
-    // Fallback timer if callback isn't supported by server ack
     setTimeout(() => {
       setIsCreating(false);
     }, 1500);
   };
 
+  const gridClass = isDark ? 'canvas-grid-dark' : 'canvas-grid-light';
+
   return (
-    <div className="relative min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-8 overflow-x-hidden">
-      {/* Background Grid Pattern */}
-      <div className="fixed inset-0 bg-grid-white/[0.03] pointer-events-none" />
-
-      {/* Ambient background glows */}
-      <div className="fixed top-0 left-1/4 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="fixed bottom-0 right-1/4 w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-[120px] pointer-events-none" />
-
-      <div className="relative z-10 max-w-6xl mx-auto">
-        {/* Top Navbar */}
-        <header className="backdrop-blur-xl bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 mb-8 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div className={`relative min-h-screen p-4 sm:p-8 transition-colors select-none ${gridClass}`}>
+      <div className="relative z-10 max-w-5xl mx-auto">
+        {/* Top Tactical Navbar */}
+        <header 
+          className={`px-5 py-3.5 mb-8 rounded-2xl border shadow-xl backdrop-blur-xl flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors ${
+            isDark 
+              ? 'bg-[#18181b]/90 border-zinc-800 text-zinc-100' 
+              : 'bg-white/95 border-zinc-200 text-zinc-900'
+          }`}
+        >
           {/* Logo & Status */}
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-pink-500 flex items-center justify-center p-[1px] shadow-lg shadow-indigo-500/20">
-                <div className="w-full h-full bg-slate-950/90 rounded-xl flex items-center justify-center">
-                  <Palette className="w-5 h-5 text-indigo-400" />
-                </div>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                  DoodleLobby
-                  <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                    Live
-                  </span>
-                </h1>
-                <p className="text-xs text-slate-400">Collaborative Whiteboard Mesh</p>
-              </div>
+            <div className="flex items-center gap-2.5">
+              <span className="font-extrabold text-base tracking-tight flex items-center gap-2">
+                <span>DoodleLobby</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border uppercase tracking-wider ${
+                  isDark ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-zinc-100 border-zinc-300 text-zinc-700'
+                }`}>
+                  Live Studio
+                </span>
+              </span>
             </div>
 
-            <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
+            <div className={`h-4 w-[1px] hidden sm:block ${isDark ? 'bg-zinc-800' : 'bg-zinc-200'}`} />
 
-            {/* Real-time Connection Status Indicator */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.03] border border-white/10 text-xs">
+            {/* Real-time Connection Indicator */}
+            <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-mono ${
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+            }`}>
               {connected ? (
                 <>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                  </span>
-                  <span className="text-emerald-400 font-medium">Server Online</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-emerald-500 font-medium">Server Online</span>
                 </>
               ) : (
                 <>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 animate-pulse"></span>
-                  </span>
-                  <span className="text-rose-400 font-medium">Disconnected</span>
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  <span className="text-rose-500 font-medium">Disconnected</span>
                 </>
               )}
             </div>
           </div>
 
           {/* User Profile & Actions */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/10">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white shadow-sm">
-                {(username || 'A').charAt(0).toUpperCase()}
+          <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-xl border text-xs font-medium ${
+              isDark ? 'bg-zinc-900/60 border-zinc-800 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
+            }`}>
+              <div className="w-5 h-5 rounded-md bg-indigo-600 flex items-center justify-center text-[10px] font-bold text-white uppercase">
+                {(username || 'A').charAt(0)}
               </div>
-              <span className="text-sm font-medium text-slate-200">
-                {username || 'Anonymous'}
-              </span>
+              <span>{username || 'Artist'}</span>
             </div>
+
+            {/* Studio Settings Gear */}
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className={`p-2 rounded-xl border transition-all ${
+                isDark 
+                  ? 'border-zinc-800 hover:bg-zinc-800 text-zinc-300' 
+                  : 'border-zinc-200 hover:bg-zinc-100 text-zinc-700'
+              }`}
+              title="Studio Settings & Theme Toggle"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+            </button>
 
             {onLogout && (
               <button
+                type="button"
                 onClick={onLogout}
-                className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all"
-                title="Switch Artist / Log out"
+                className={`p-2 rounded-xl border transition-all ${
+                  isDark 
+                    ? 'border-zinc-800 hover:border-rose-800 hover:text-rose-400 text-zinc-400' 
+                    : 'border-zinc-200 hover:border-rose-300 hover:text-rose-600 text-zinc-600'
+                }`}
+                title="Log out"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
         </header>
 
-        {/* Tab Switcher & Header Bar */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-          <div className="inline-flex p-1 rounded-xl bg-white/[0.03] border border-white/10 backdrop-blur-md">
+        {/* Tab Switcher */}
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <div className={`inline-flex p-1 rounded-xl border ${
+            isDark ? 'bg-[#18181b]/80 border-zinc-800' : 'bg-white border-zinc-200'
+          }`}>
             <button
+              type="button"
               onClick={() => setActiveTab('available')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === 'available'
-                  ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white shadow-lg shadow-indigo-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? isDark
+                    ? 'bg-zinc-100 text-zinc-950 shadow-sm'
+                    : 'bg-zinc-900 text-white shadow-sm'
+                  : isDark
+                  ? 'text-zinc-400 hover:text-zinc-200'
+                  : 'text-zinc-600 hover:text-zinc-900'
               }`}
             >
-              <Layers className="w-4 h-4" />
+              <Layers className="w-3.5 h-3.5" />
               <span>Available Canvases</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                activeTab === 'available' ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-400'
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${
+                activeTab === 'available'
+                  ? isDark ? 'bg-zinc-300 text-zinc-900' : 'bg-zinc-800 text-white'
+                  : isDark ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-100 text-zinc-600'
               }`}>
                 {rooms.length}
               </span>
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveTab('create')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === 'create'
-                  ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white shadow-lg shadow-indigo-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? isDark
+                    ? 'bg-zinc-100 text-zinc-950 shadow-sm'
+                    : 'bg-zinc-900 text-white shadow-sm'
+                  : isDark
+                  ? 'text-zinc-400 hover:text-zinc-200'
+                  : 'text-zinc-600 hover:text-zinc-900'
               }`}
             >
-              <PlusCircle className="w-4 h-4" />
+              <PlusCircle className="w-3.5 h-3.5" />
               <span>Create Canvas</span>
             </button>
           </div>
 
-          <div className="text-xs text-slate-400 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-indigo-500" />
-            <span>Click any canvas card to enter immediate co-drawing session</span>
+          <div className={`text-xs font-mono hidden md:flex items-center gap-1.5 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
+            <span>2-min idle auto-destruction active</span>
           </div>
         </div>
 
-        {/* Tab Content 1: Available Canvases */}
+        {/* Tab 1: Available Canvases */}
         {activeTab === 'available' && (
           <div>
             {rooms.length === 0 ? (
-              /* Clean Empty State */
-              <div className="backdrop-blur-xl bg-white/[0.02] border border-white/10 rounded-2xl p-12 text-center max-w-lg mx-auto my-8 shadow-2xl">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-500/20 via-purple-500/20 to-pink-500/20 border border-white/10 flex items-center justify-center mx-auto mb-4 text-indigo-400">
-                  <Brush className="w-8 h-8" />
+              <div 
+                className={`p-12 text-center rounded-2xl border shadow-lg max-w-md mx-auto my-6 ${
+                  isDark 
+                    ? 'bg-[#18181b]/80 border-zinc-800 text-zinc-200' 
+                    : 'bg-white border-zinc-200 text-zinc-800'
+                }`}
+              >
+                <div className={`w-12 h-12 rounded-xl border flex items-center justify-center mx-auto mb-3 ${
+                  isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-zinc-50 border-zinc-200 text-zinc-600'
+                }`}>
+                  <Brush className="w-6 h-6" />
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-2">No active canvases found</h3>
-                <p className="text-slate-400 text-sm mb-6 max-w-sm mx-auto">
-                  There are no collaborative lobbies open right now. Launch a new canvas and invite your teammates to draw!
+                <h3 className="font-semibold text-base mb-1">No active lobbies</h3>
+                <p className={`text-xs mb-5 max-w-xs mx-auto ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  Launch a tactical canvas and share the link with your team to start real-time sketching.
                 </p>
                 <button
+                  type="button"
                   onClick={() => setActiveTab('create')}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white text-sm font-medium shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-all"
                 >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Create Your First Canvas</span>
+                  Create New Canvas
                 </button>
               </div>
             ) : (
-              /* Available Canvases Grid */
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {rooms.map((room) => (
                   <div
                     key={room.roomId}
                     onClick={() => handleJoin(room.roomId)}
-                    className="group relative cursor-pointer backdrop-blur-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 hover:border-indigo-500/40 rounded-2xl p-6 transition-all duration-300 shadow-xl hover:shadow-indigo-500/10 hover:-translate-y-1 flex flex-col justify-between"
+                    className={`group cursor-pointer p-5 rounded-2xl border shadow-sm transition-all flex flex-col justify-between ${
+                      isDark 
+                        ? 'bg-[#18181b] hover:bg-[#202024] border-zinc-800 hover:border-zinc-700 text-zinc-100' 
+                        : 'bg-white hover:bg-zinc-50 border-zinc-200 hover:border-zinc-300 text-zinc-900'
+                    }`}
                   >
-                    {/* Top row */}
                     <div>
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <h3 className="font-semibold text-lg text-white group-hover:text-indigo-300 transition-colors line-clamp-1">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <h4 className="font-semibold text-sm line-clamp-1 group-hover:text-indigo-500 transition-colors">
                           {room.roomName}
-                        </h3>
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        </h4>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono border ${
+                          isDark ? 'bg-zinc-900 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-emerald-600'
+                        }`}>
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                           {room.activeUserCount} Active
                         </span>
                       </div>
 
-                      {/* Creator badge */}
-                      <div className="flex items-center gap-2 text-xs text-slate-400 mb-6">
-                        <div className="w-5 h-5 rounded-md bg-white/10 flex items-center justify-center text-[10px] font-bold text-slate-300">
-                          {(room.creatorUsername || 'C').charAt(0).toUpperCase()}
-                        </div>
-                        <span>Created by <strong className="text-slate-200 font-medium">{room.creatorUsername}</strong></span>
+                      <div className={`flex items-center gap-1.5 text-xs font-mono mb-6 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                        <span>By {room.creatorUsername}</span>
                       </div>
                     </div>
 
-                    {/* Gradient Join Lobby Button */}
-                    <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                      <span className="text-xs text-slate-500 font-mono">ID: {room.roomId.substring(0, 12)}</span>
-                      <div className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 group-hover:from-indigo-600 group-hover:to-pink-600 shadow-md shadow-indigo-500/20 transition-all">
-                        <span>Join Lobby</span>
-                        <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
+                    <div className={`pt-3 border-t flex items-center justify-between text-xs ${
+                      isDark ? 'border-zinc-800' : 'border-zinc-100'
+                    }`}>
+                      <span className={`font-mono text-[10px] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                        {room.roomId.substring(0, 14)}
+                      </span>
+                      <div className="flex items-center gap-1 font-semibold text-indigo-500 group-hover:translate-x-0.5 transition-transform">
+                        <span>Join</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
                       </div>
                     </div>
                   </div>
@@ -236,49 +273,65 @@ const Dashboard = ({ onLogout }) => {
           </div>
         )}
 
-        {/* Tab Content 2: Create Canvas */}
+        {/* Tab 2: Create Canvas */}
         {activeTab === 'create' && (
-          <div className="max-w-2xl mx-auto backdrop-blur-xl bg-white/[0.03] border border-white/10 rounded-2xl p-8 shadow-2xl">
+          <div 
+            className={`max-w-xl mx-auto p-6 sm:p-8 rounded-2xl border shadow-xl transition-all ${
+              isDark 
+                ? 'bg-[#18181b] border-zinc-800 text-zinc-100' 
+                : 'bg-white border-zinc-200 text-zinc-900'
+            }`}
+          >
             <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+              <div className="p-2.5 rounded-xl bg-indigo-600/10 border border-indigo-600/20 text-indigo-500">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-white">Create a New Whiteboard Lobby</h3>
-                <p className="text-xs text-slate-400">Give your canvas a name or pick one of our instant workspace presets</p>
+                <h3 className="font-semibold text-base">New Whiteboard Studio</h3>
+                <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  Select a template or type your canvas title
+                </p>
               </div>
             </div>
 
-            <form onSubmit={handleCreate} className="space-y-6">
+            <form onSubmit={handleCreate} className="space-y-5">
               <div>
-                <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider mb-2">
+                <label className={`block text-xs font-mono uppercase tracking-wider mb-2 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
                   Canvas Name
                 </label>
                 <input
                   type="text"
                   value={newCanvasName}
                   onChange={(e) => setNewCanvasName(e.target.value)}
-                  placeholder="e.g. Next-Gen Product Wireframe"
+                  placeholder="e.g. Sprint Architecture Whiteboard"
                   maxLength={40}
-                  className="w-full px-4 py-3 bg-zinc-900/60 border border-zinc-800 rounded-xl text-sm text-slate-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/80 transition-all"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all ${
+                    isDark 
+                      ? 'bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600' 
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder:text-zinc-400'
+                  }`}
                 />
               </div>
 
-              {/* Quick Presets */}
+              {/* Presets */}
               <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
-                  Quick Presets
+                <span className={`block text-xs font-mono uppercase tracking-wider mb-2.5 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  Workspace Presets
                 </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {presets.map((preset) => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {presets.map((p) => (
                     <button
+                      key={p.title}
                       type="button"
-                      key={preset.title}
-                      onClick={() => setNewCanvasName(preset.title)}
-                      className="text-left p-3.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 hover:border-indigo-500/30 transition-all text-xs"
+                      onClick={() => setNewCanvasName(p.title)}
+                      className={`text-left p-3 rounded-xl border transition-all text-xs ${
+                        isDark 
+                          ? 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900' 
+                          : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50 hover:bg-zinc-100'
+                      }`}
                     >
-                      <span className="font-semibold text-slate-200 block mb-0.5">{preset.title}</span>
-                      <span className="text-slate-400">{preset.desc}</span>
+                      <span className="font-semibold block mb-0.5">{p.title}</span>
+                      <span className={`text-[11px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{p.desc}</span>
                     </button>
                   ))}
                 </div>
@@ -288,17 +341,21 @@ const Dashboard = ({ onLogout }) => {
               <button
                 type="submit"
                 disabled={isCreating}
-                className="w-full group relative overflow-hidden rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 p-[1px] font-medium text-white shadow-lg shadow-indigo-500/25 transition-all duration-300 hover:shadow-indigo-500/40 active:scale-[0.98] disabled:opacity-50"
+                className="w-full py-3 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
               >
-                <div className="relative flex items-center justify-center gap-2 rounded-xl bg-transparent py-3.5 px-4 font-semibold text-white">
-                  <span>{isCreating ? 'Spawning Canvas...' : 'Launch Whiteboard Lobby 🚀'}</span>
-                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-                </div>
+                <span>{isCreating ? 'Creating Room...' : 'Launch Canvas'}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </form>
           </div>
         )}
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </div>
   );
 };

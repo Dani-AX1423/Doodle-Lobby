@@ -213,9 +213,29 @@ public class SocketModule {
                 drawJson = gson.toJson(data);
             }
 
-            drawEvent(room, drawJson.getBytes(StandardCharsets.UTF_8), client.get("username"));
+            try {
+                Map<String, Object> map = gson.fromJson(drawJson, Map.class);
+                if (map != null) {
+                    String eventType = map.get("type") != null ? map.get("type").toString() : "";
+                    String strokeId = map.get("strokeId") != null ? map.get("strokeId").toString() : null;
 
-            // Broadcast to other clients in room
+                    if ("undo".equals(eventType) && strokeId != null) {
+                        room.getDrawingHistory().remove(strokeId);
+                        room.touch();
+                    } else if (Boolean.FALSE.equals(map.get("isStreaming")) || map.get("isStreaming") == null) {
+                        // Only save non-streaming finalized strokes to history
+                        String key = strokeId != null ? strokeId : String.valueOf(System.currentTimeMillis());
+                        room.getDrawingHistory().put(key, drawJson.getBytes(StandardCharsets.UTF_8));
+                        room.touch();
+                    }
+                } else {
+                    drawEvent(room, drawJson.getBytes(StandardCharsets.UTF_8), client.get("username"));
+                }
+            } catch (Exception e) {
+                drawEvent(room, drawJson.getBytes(StandardCharsets.UTF_8), client.get("username"));
+            }
+
+            // Broadcast to other clients in room (including live streaming points and undo)
             for (SocketIOClient c : server.getRoomOperations(roomId).getClients()) {
                 if (!c.getSessionId().equals(client.getSessionId())) {
                     c.sendEvent("draw-event", drawJson);
