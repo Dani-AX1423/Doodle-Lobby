@@ -78,6 +78,13 @@ const WhiteboardCanvas = ({
     }
   }, [isFixedSheet, panOffset, zoom]);
 
+  // Helper to compute normalized canvas-space stroke width (independent of current zoom/scale level)
+  const getNormalizedLineWidth = useCallback((currentTool, width) => {
+    const isEraser = currentTool === 'eraser';
+    const baseWidth = isEraser ? Math.max(width * 6, 24) : (width || 3);
+    return baseWidth / (zoom || 1);
+  }, [zoom]);
+
   // Helper to render an individual stroke on a transformed 2D context
   const renderSingleStroke = useCallback((ctx, stroke) => {
     if (!ctx || !stroke) return;
@@ -85,19 +92,18 @@ const WhiteboardCanvas = ({
     ctx.save();
     const isEraser = stroke.type === 'eraser';
 
+    // Eraser Rendering Pipeline Alignment
     if (isEraser) {
       ctx.globalCompositeOperation = 'destination-out';
-      ctx.lineWidth = stroke.lineWidth || 24;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
       ctx.strokeStyle = 'rgba(0,0,0,1)';
     } else {
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = stroke.color || '#ffffff';
-      ctx.lineWidth = stroke.lineWidth || 3;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
     }
+
+    ctx.lineWidth = stroke.lineWidth || (isEraser ? 24 : 3);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
     if (stroke.type === 'pencil' || stroke.type === 'eraser') {
       const points = stroke.points;
@@ -133,6 +139,8 @@ const WhiteboardCanvas = ({
       ctx.stroke();
     }
 
+    // Always reset ctx.globalCompositeOperation = 'source-over' after drawing eraser paths
+    ctx.globalCompositeOperation = 'source-over';
     ctx.restore();
   }, []);
 
@@ -168,8 +176,9 @@ const WhiteboardCanvas = ({
       renderSingleStroke(ctx, stroke);
     });
 
-    // 3. Draw active local stroke preview
+    // 3. Draw active local stroke preview with identical normalized lineWidth
     if (isDrawingRef.current && currentPathRef.current.length > 0) {
+      const isEraser = tool === 'eraser';
       const localPreviewStroke = {
         type: tool,
         points: currentPathRef.current,
@@ -177,12 +186,12 @@ const WhiteboardCanvas = ({
         y1: currentPathRef.current[0].y,
         x2: currentPathRef.current[currentPathRef.current.length - 1].x,
         y2: currentPathRef.current[currentPathRef.current.length - 1].y,
-        color,
-        lineWidth,
+        color: isEraser ? 'rgba(0,0,0,1)' : color,
+        lineWidth: getNormalizedLineWidth(tool, lineWidth),
       };
       renderSingleStroke(ctx, localPreviewStroke);
     }
-  }, [isFixedSheet, zoom, panOffset, renderSingleStroke, tool, color, lineWidth]);
+  }, [isFixedSheet, zoom, panOffset, renderSingleStroke, tool, color, lineWidth, getNormalizedLineWidth]);
 
   // Canvas size management
   useEffect(() => {
@@ -467,8 +476,8 @@ const WhiteboardCanvas = ({
           strokeId: currentStrokeIdRef.current,
           type: tool,
           points: currentPathRef.current,
-          color: tool === 'eraser' ? 'transparent' : color,
-          lineWidth: tool === 'eraser' ? 24 : lineWidth,
+          color: tool === 'eraser' ? 'rgba(0,0,0,1)' : color,
+          lineWidth: getNormalizedLineWidth(tool, lineWidth),
           username,
           isStreaming: true,
         });
@@ -478,8 +487,8 @@ const WhiteboardCanvas = ({
     redrawCanvas();
   };
 
-  // STROKE DISAPPEARING ON RELEASE (Instant Repaint Fix)
-  const handlePointerUp = () => {
+  // STROKE DISAPPEARING ON RELEASE (Instant Synchronous Repaint Fix)
+  const handlePointerUp = useCallback(() => {
     if (isPanningRef.current) {
       isPanningRef.current = false;
       const canvas = canvasRef.current;
@@ -497,14 +506,16 @@ const WhiteboardCanvas = ({
 
     const strokeId = currentStrokeIdRef.current;
     let finalizedStroke = null;
+    const isEraser = tool === 'eraser';
+    const normalizedLineWidth = getNormalizedLineWidth(tool, lineWidth);
 
     if (tool === 'pencil' || tool === 'eraser') {
       finalizedStroke = {
         strokeId,
         type: tool,
         points,
-        color: tool === 'eraser' ? 'transparent' : color,
-        lineWidth: tool === 'eraser' ? 24 : lineWidth,
+        color: isEraser ? 'rgba(0,0,0,1)' : color,
+        lineWidth: normalizedLineWidth,
         username,
         isStreaming: false,
       };
@@ -517,7 +528,7 @@ const WhiteboardCanvas = ({
         x2: points[points.length - 1].x,
         y2: points[points.length - 1].y,
         color,
-        lineWidth,
+        lineWidth: normalizedLineWidth,
         username,
         isStreaming: false,
       };
@@ -530,7 +541,7 @@ const WhiteboardCanvas = ({
       setHistory(historyRef.current);
       redoStackRef.current = [];
 
-      // 3. Emit stroke payload to socket
+      // 3. Emit stroke payload to socket with standardized normalized lineWidth
       if (sendDrawEvent) {
         sendDrawEvent(finalizedStroke);
       }
@@ -541,7 +552,18 @@ const WhiteboardCanvas = ({
 
     // 4. IMMEDIATELY execute full canvas repaint synchronously before returning
     redrawCanvas();
-  };
+  }, [tool, color, lineWidth, username, getNormalizedLineWidth, sendDrawEvent, redrawCanvas]);
+
+  // Global pointerup listener to ensure stroke commits even if pointer leaves canvas
+  useEffect(() => {
+    const handleGlobalPointerUp = () => {
+      if (isDrawingRef.current) {
+        handlePointerUp();
+      }
+    };
+    window.addEventListener('pointerup', handleGlobalPointerUp);
+    return () => window.removeEventListener('pointerup', handleGlobalPointerUp);
+  }, [handlePointerUp]);
 
   // Clean solid background color (no grid lines, no SVG patterns)
   const containerBg = theme === 'dark' ? 'bg-[#121214]' : 'bg-[#F8F9FA]';
@@ -599,6 +621,7 @@ const WhiteboardCanvas = ({
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onPointerLeave={handlePointerUp}
+              onMouseUp={handlePointerUp}
               className="w-full h-full block touch-none cursor-crosshair rounded-lg"
             />
           </div>
@@ -611,6 +634,7 @@ const WhiteboardCanvas = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerUp}
+          onMouseUp={handlePointerUp}
           className="w-full h-full touch-none block cursor-crosshair"
         />
       )}
